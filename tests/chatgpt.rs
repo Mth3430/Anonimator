@@ -78,6 +78,7 @@ struct Idp {
     tamper: Option<&'static str>,
     grant_plan: bool,
     refresh_error: Option<&'static str>,
+    exchange_refused: bool,
     expires_in: u64,
 }
 
@@ -137,7 +138,11 @@ fn start_server(idp: Arc<Mutex<Idp>>) -> String {
                 "/token" => {
                     state.token_forms.push(body.clone());
                     let grant = form_field(&body, "grant_type").unwrap_or_default();
-                    if grant == "refresh_token" && state.refresh_error.is_some() {
+                    if grant == "authorization_code" && state.exchange_refused {
+                        ("400 Bad Request", "application/json", json!({
+                            "error": "invalid_grant", "error_description": "A required permission is unavailable."
+                        }).to_string())
+                    } else if grant == "refresh_token" && state.refresh_error.is_some() {
                         ("400 Bad Request", "application/json", json!({"error": state.refresh_error}).to_string())
                     } else {
                         if grant == "authorization_code" {
@@ -362,6 +367,42 @@ fn bad_identity_tokens_are_rejected_and_nothing_is_stored() {
         assert!(fx.secrets.get().is_none(), "{tamper}");
         assert!(!auth.is_connected(), "{tamper}");
     }
+}
+
+#[test]
+fn refused_code_explains_itself_and_keeps_the_registration_for_the_retry() {
+    let fx = fixture();
+    fx.idp.lock().unwrap().exchange_refused = true;
+    let mut auth = fx.auth();
+    let error = sign_in(&fx, &mut auth).unwrap_err().to_string();
+    assert!(error.contains("invalid_grant"), "{error}");
+    assert!(
+        error.contains("A required permission is unavailable"),
+        "{error}"
+    );
+    assert!(error.contains("Réessayez"), "{error}");
+    assert!(fx.secrets.get().is_none());
+    assert!(!auth.is_connected());
+
+    // La nouvelle tentative réutilise le client enregistré et aboutit.
+    fx.idp.lock().unwrap().exchange_refused = false;
+    let captured = Arc::new(Mutex::new(String::new()));
+    let inner = fx.browser();
+    let seen = captured.clone();
+    let open = move |url: &str| {
+        *seen.lock().unwrap() = url.to_string();
+        inner(url)
+    };
+    auth.sign_in(&open, &AtomicBool::new(false)).unwrap();
+    assert!(auth.is_connected());
+    let url = url::Url::parse(&captured.lock().unwrap()).unwrap();
+    let client = url
+        .query_pairs()
+        .find(|(k, _)| k == "client_id")
+        .unwrap()
+        .1
+        .into_owned();
+    assert_eq!(client, CLIENT);
 }
 
 #[test]

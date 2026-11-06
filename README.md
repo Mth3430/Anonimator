@@ -29,13 +29,18 @@ Vous ⇄ IA locale (Ollama) ⇄ Anonymiseur + coffre ⇄ IA en ligne (Claude ou 
 | Bouton | Ce qui se passe | Facturation |
 |---|---|---|
 | **Continue with ChatGPT** | Connexion dans le navigateur, sans clé d'API | Votre forfait ChatGPT |
+| **Se connecter à Gemini** | Ouvre Google AI Studio, puis vous collez la clé dans l'application | Niveau gratuit soumis à des quotas, ou facturation Google Cloud |
 | **Se connecter à Claude** | Ouvre la page des clés, puis vous collez la clé dans l'application | Crédits de l'API Anthropic, à l'usage |
 
 Claude ne propose pas de connexion équivalente : Anthropic interdit d'utiliser un abonnement Free, Pro ou Max dans une application tierce. Il faut donc une clé d'API, facturée séparément de l'abonnement.
 
 La connexion ChatGPT suit le parcours officiel d'OpenAI, en préversion, pour les projets open source et les projets personnels locaux. Une application payante ou hébergée doit d'abord remplir le formulaire d'OpenAI. Le compte doit être éligible à l'usage du forfait.
 
-Le jeton de renouvellement ChatGPT et les clés d'API sont conservés dans le gestionnaire d'identifiants de Windows. Les clés d'API peuvent aussi venir de `ANTHROPIC_API_KEY` ou `OPENAI_API_KEY`. Le mode « Compatible OpenAI » (Mistral, OpenRouter…) se trouve dans les réglages avancés.
+Le compte ChatGPT doit avoir accès à l'usage du forfait dans les applications : un compte Free peut être refusé avec `invalid_grant`.
+
+Pour le niveau gratuit de Gemini, [les conditions de Google](https://aistudio.google.com/docs/terms) prévoient que le contenu peut servir à améliorer ses produits et être relu par des personnes. Elles demandent aussi de ne pas envoyer d'informations sensibles, confidentielles ou personnelles. Dans l'EEE, en Suisse et au Royaume-Uni, ce sont les règles de données de la version payante qui s'appliquent, mais proposer une application à des utilisateurs de ces régions demande un accès payant. Vérifiez ces conditions si vous distribuez Anonimator.
+
+Le jeton de renouvellement ChatGPT et les clés d'API sont conservés dans le gestionnaire d'identifiants de Windows. Les clés d'API peuvent aussi venir de `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` ou `OPENAI_API_KEY`. Le mode « Compatible OpenAI » (Mistral, OpenRouter…) se trouve dans les réglages avancés.
 
 ## Ce qui est masqué
 
@@ -191,6 +196,7 @@ Les écritures restent dans `Workspace::pending`, en mémoire, jusqu'à la valid
 |---|---|---|
 | Anthropic | `POST /v1/messages` | Les réponses sont rejouées telles quelles, blocs de réflexion compris |
 | Forfait ChatGPT | `POST /v1/responses`, en flux SSE | `store` à `false` : tout l'historique est renvoyé à chaque tour |
+| Gemini | `POST /chat/completions`, interface compatible OpenAI | Les réponses sont rejouées intactes, signatures de réflexion comprises |
 | Compatible OpenAI | `POST /chat/completions` | Pour Mistral, OpenRouter et les autres services compatibles |
 
 `chatgpt.rs` suit le parcours officiel d'OpenAI : écoute locale sur `127.0.0.1`, PKCE, vérification de la signature du jeton d'identité, puis rotation du jeton de renouvellement.
@@ -215,6 +221,7 @@ cargo clippy --all-targets
 |---|---|
 | `tests/end_to_end.rs` | Faux serveurs Ollama et Anthropic : inspecte les octets reçus par le serveur « en ligne », puis le fichier écrit |
 | `tests/chatgpt.rs` | Faux serveurs OpenAI : connexion, identité falsifiée, renouvellement, flux SSE |
+| `tests/gemini.rs` | Faux serveur Gemini : boucle d'outils et signatures de réflexion |
 | `tests/dogfood.rs` | L'anonymiseur appliqué au code de ce dépôt |
 | Tests unitaires dans `src/` | Lexer, repérage des noms, secrets, coffre, chemins |
 

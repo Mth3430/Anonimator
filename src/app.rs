@@ -24,6 +24,14 @@ enum Speaker {
     Problem,
 }
 
+struct KeyService {
+    provider: Provider,
+    name: &'static str,
+    keys_page: &'static str,
+    hint: &'static str,
+    note: &'static str,
+}
+
 #[derive(PartialEq, Clone, Copy)]
 enum Tab {
     Exchanges,
@@ -58,7 +66,7 @@ pub struct App {
     chatgpt_models: Vec<String>,
     sign_in_cancel: Option<Arc<AtomicBool>>,
     show_welcome: bool,
-    claude_setup: bool,
+    key_setup: Option<Provider>,
     remote_lines: Vec<RemoteLine>,
     secrets: Vec<String>,
     show_inspector: bool,
@@ -86,7 +94,7 @@ impl App {
             chatgpt_models: Vec::new(),
             sign_in_cancel: None,
             show_welcome: false,
-            claude_setup: false,
+            key_setup: None,
             remote_lines: Vec::new(),
             secrets: Vec::new(),
             show_inspector: true,
@@ -138,7 +146,7 @@ impl App {
                     if just_connected {
                         self.config.provider = Provider::ChatGptPlan;
                         self.config.remote_url = config::CHATGPT_URL.into();
-                        self.claude_setup = false;
+                        self.key_setup = None;
                     }
                     if let Some(model) = selected {
                         self.config.remote_model = model;
@@ -367,32 +375,70 @@ impl App {
             ui.add_space(6.0);
         }
 
-        if self.config.provider == Provider::Anthropic
-            && !self.config.api_key.is_empty()
-            && !self.claude_setup
-        {
-            ui.colored_label(ADDED_COLOR, "Claude connecté par clé d'API");
+        self.key_service(
+            ui,
+            KeyService {
+                provider: Provider::Gemini,
+                name: "Gemini",
+                keys_page: config::GEMINI_KEYS_PAGE,
+                hint: "Clé Google AI Studio",
+                note: "Niveau gratuit avec un compte Google. Hors d'Europe, Google peut utiliser et faire relire ce qui lui est envoyé en gratuit.",
+            },
+        );
+        ui.add_space(6.0);
+        self.key_service(
+            ui,
+            KeyService {
+                provider: Provider::Anthropic,
+                name: "Claude",
+                keys_page: config::ANTHROPIC_KEYS_PAGE,
+                hint: "sk-ant-…",
+                note: "Claude exige une clé d'API : l'abonnement n'est pas utilisable ici.",
+            },
+        );
+    }
+
+    /// Bouton d'un service à clé : bascule si la clé existe, sinon ouvre la page pour en créer une.
+    fn key_service(&mut self, ui: &mut egui::Ui, service: KeyService) {
+        let connected = self.config.provider == service.provider && !self.config.api_key.is_empty();
+        let editing = self.key_setup == Some(service.provider);
+        if connected && !editing {
+            ui.colored_label(
+                ADDED_COLOR,
+                format!("{} connecté par clé d'API", service.name),
+            );
             ui.label(RichText::new(&self.config.remote_model).weak());
             if ui.button("Remplacer la clé").clicked() {
-                self.claude_setup = true;
+                self.key_setup = Some(service.provider);
+                ui.ctx().open_url(egui::OpenUrl::new_tab(service.keys_page));
             }
+            ui.label(RichText::new(service.note).weak());
             return;
         }
-        let button = egui::Button::new("Se connecter à Claude").min_size(full_width);
+        let size = egui::vec2(ui.available_width(), 30.0);
+        let button = egui::Button::new(format!("Se connecter à {}", service.name)).min_size(size);
         if ui.add_enabled(!self.busy, button).clicked() {
-            self.claude_setup = true;
-            ui.ctx()
-                .open_url(egui::OpenUrl::new_tab(config::ANTHROPIC_KEYS_PAGE));
+            if config::load_api_key(service.provider).is_empty() {
+                self.key_setup = Some(service.provider);
+                self.key_input.clear();
+                ui.ctx().open_url(egui::OpenUrl::new_tab(service.keys_page));
+            } else {
+                self.use_key(service.provider);
+            }
         }
-        if self.claude_setup {
-            ui.label("Créez une clé dans la page ouverte, puis collez-la ici :");
-            ui.add(
-                TextEdit::singleline(&mut self.key_input)
-                    .password(true)
-                    .hint_text("sk-ant-…")
-                    .desired_width(f32::INFINITY),
-            );
-            let filled = !self.key_input.trim().is_empty();
+        if self.key_setup != Some(service.provider) {
+            ui.label(RichText::new(service.note).weak());
+            return;
+        }
+        ui.label("Créez une clé dans la page ouverte, puis collez-la ici :");
+        ui.add(
+            TextEdit::singleline(&mut self.key_input)
+                .password(true)
+                .hint_text(service.hint)
+                .desired_width(f32::INFINITY),
+        );
+        let filled = !self.key_input.trim().is_empty();
+        ui.horizontal(|ui| {
             if ui
                 .add_enabled(
                     filled && !self.busy,
@@ -400,23 +446,25 @@ impl App {
                 )
                 .clicked()
             {
-                self.use_claude_key();
+                self.use_key(service.provider);
             }
-        } else {
-            ui.label(
-                RichText::new(
-                    "Claude exige une clé d'API : l'abonnement n'est pas utilisable ici.",
-                )
-                .weak(),
-            );
-        }
+            if ui.button("Annuler").clicked() {
+                self.key_setup = None;
+                self.key_input.clear();
+            }
+        });
     }
 
-    fn use_claude_key(&mut self) {
-        self.config.provider = Provider::Anthropic;
-        self.config.remote_url = config::ANTHROPIC_URL.into();
-        self.config.remote_model = config::ANTHROPIC_MODEL.into();
-        self.claude_setup = false;
+    fn use_key(&mut self, provider: Provider) {
+        let (url, model) = match provider {
+            Provider::Gemini => (config::GEMINI_URL, config::GEMINI_MODEL),
+            _ => (config::ANTHROPIC_URL, config::ANTHROPIC_MODEL),
+        };
+        self.config.provider = provider;
+        self.config.remote_url = url.into();
+        self.config.remote_model = model.into();
+        self.config.api_key = config::load_api_key(provider);
+        self.key_setup = None;
         self.apply_settings();
     }
 
@@ -447,12 +495,18 @@ impl App {
         );
         ui.radio_value(
             &mut self.config.provider,
+            Provider::Gemini,
+            "Gemini (clé d'API)",
+        );
+        ui.radio_value(
+            &mut self.config.provider,
             Provider::OpenAiCompatible,
             "Compatible OpenAI (clé d'API)",
         );
         if before != self.config.provider {
             let (url, model) = match self.config.provider {
                 Provider::Anthropic => (config::ANTHROPIC_URL, config::ANTHROPIC_MODEL),
+                Provider::Gemini => (config::GEMINI_URL, config::GEMINI_MODEL),
                 Provider::OpenAiCompatible => (config::OPENAI_URL, ""),
                 Provider::ChatGptPlan => (config::CHATGPT_URL, ""),
             };

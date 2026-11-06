@@ -121,7 +121,7 @@ impl RemoteAi {
                 self.messages
                     .push(json!({"role": "user", "content": blocks}));
             }
-            Provider::OpenAiCompatible => {
+            Provider::OpenAiCompatible | Provider::Gemini => {
                 for r in results {
                     self.messages
                         .push(json!({"role": "tool", "tool_call_id": r.id, "content": r.content}));
@@ -146,7 +146,7 @@ impl RemoteAi {
     pub fn step(&mut self, chatgpt: &mut ChatGptAuth) -> Result<Turn> {
         match self.provider {
             Provider::Anthropic => self.step_anthropic(),
-            Provider::OpenAiCompatible => self.step_openai(),
+            Provider::OpenAiCompatible | Provider::Gemini => self.step_openai(),
             Provider::ChatGptPlan => self.step_chatgpt(chatgpt),
         }
     }
@@ -264,7 +264,19 @@ impl RemoteAi {
         let tool_defs: Vec<Value> = tools()
             .into_iter()
             .map(|(name, description, schema)| {
-                json!({"type": "function", "function": {"name": name, "description": description, "parameters": schema}})
+                let mut function =
+                    json!({"name": name, "description": description, "parameters": schema});
+                // Gemini accepte mal un objet sans propriétés : un outil sans argument s'en passe.
+                let no_arguments = function["parameters"]["properties"]
+                    .as_object()
+                    .is_some_and(|properties| properties.is_empty());
+                if self.provider == Provider::Gemini && no_arguments {
+                    function
+                        .as_object_mut()
+                        .expect("objet ci-dessus")
+                        .remove("parameters");
+                }
+                json!({"type": "function", "function": function})
             })
             .collect();
         let mut messages = vec![json!({"role": "system", "content": SYSTEM_PROMPT})];

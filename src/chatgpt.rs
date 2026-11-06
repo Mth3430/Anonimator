@@ -218,7 +218,20 @@ impl ChatGptAuth {
             ("code_verifier", &verifier),
             ("redirect_uri", &redirect_uri),
             ("resource", RESOURCE),
-        ])?;
+        ]);
+        let tokens = tokens.map_err(|error| {
+            let detail = format!("{error:#}");
+            // OpenAI demande de jeter ce code et de recommencer avec le même client, déjà enregistré.
+            if detail.contains("invalid_grant") {
+                anyhow!(
+                    "ChatGPT a refusé la connexion ({detail}). Réessayez une fois. Si l'erreur revient, \
+                     votre compte n'a peut-être pas accès à l'usage du forfait dans les applications : \
+                     il faut en général un forfait Plus ou Pro sur un compte personnel."
+                )
+            } else {
+                error
+            }
+        })?;
         let id_token = tokens
             .id_token
             .as_deref()
@@ -418,7 +431,23 @@ impl ChatGptAuth {
                     .or(body["error"].as_str())
                     .or(body["code"].as_str())
                     .unwrap_or("inconnue");
-                bail!("erreur de connexion ChatGPT ({status}) : {code}");
+                // Ces champs distinguent par exemple un code expiré d'un forfait non éligible.
+                let reason = body["error_reason"].as_str();
+                let description = body["error_description"]
+                    .as_str()
+                    .or(body["error"]["message"].as_str());
+                let detail: String = [reason, description]
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<_>>()
+                    .join(" : ")
+                    .chars()
+                    .take(300)
+                    .collect();
+                if detail.is_empty() {
+                    bail!("erreur de connexion ChatGPT ({status}) : {code}");
+                }
+                bail!("erreur de connexion ChatGPT ({status}) : {code} : {detail}");
             }
             Err(error) => Err(anyhow!(
                 "serveur de connexion ChatGPT injoignable : {}",

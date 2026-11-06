@@ -10,11 +10,17 @@ pub const ANTHROPIC_MODEL: &str = "claude-opus-5-5";
 pub const OPENAI_URL: &str = "https://api.openai.com/v1/chat/completions";
 pub const CHATGPT_URL: &str = "https://api.openai.com/v1/responses";
 pub const ANTHROPIC_KEYS_PAGE: &str = "https://platform.claude.com/settings/keys";
+pub const GEMINI_URL: &str =
+    "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
+pub const GEMINI_MODEL: &str = "gemini-3.8-flash";
+pub const GEMINI_KEYS_PAGE: &str = "https://aistudio.google.com/apikey";
 
 #[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
 pub enum Provider {
     Anthropic,
     OpenAiCompatible,
+    /// Gemini, par son interface compatible OpenAI, avec une clé d'AI Studio.
+    Gemini,
     /// Forfait ChatGPT, via « Sign in with ChatGPT » : pas de clé d'API.
     ChatGptPlan,
 }
@@ -24,6 +30,7 @@ impl Provider {
         match self {
             Provider::Anthropic => Some("anthropic"),
             Provider::OpenAiCompatible => Some("openai-compatible"),
+            Provider::Gemini => Some("gemini"),
             Provider::ChatGptPlan => None,
         }
     }
@@ -32,6 +39,7 @@ impl Provider {
         match self {
             Provider::Anthropic => Some("ANTHROPIC_API_KEY"),
             Provider::OpenAiCompatible => Some("OPENAI_API_KEY"),
+            Provider::Gemini => Some("GEMINI_API_KEY"),
             Provider::ChatGptPlan => None,
         }
     }
